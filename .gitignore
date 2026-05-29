@@ -43,3 +43,7 @@ replay_*.log
 
 server/node_modules/
 server/chats.jsonl
+
+# built mod jar
+
+build/libs/*.jar
