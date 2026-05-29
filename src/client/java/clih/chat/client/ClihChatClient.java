@@ -13,7 +13,7 @@ public class ClihChatClient implements ClientModInitializer {
     public static ClihChatClient INSTANCE;
 
     // Change this to point at your relay host.
-    static final String RELAY_URL = "ws://localhost:3000";
+    static final String RELAY_URL = "wss://clihchat.onrender.com";
 
     volatile RelayClient relay;
 
