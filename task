@@ -1,0 +1,91 @@
+# Dev Task — clih chat
+
+## Summary
+Build **clih chat**: a client-side Minecraft mod plus a small relay server that hijacks the whisper commands (`/msg`, `/tell`, `/w`, `/r`) and routes them through our own server instead of the Minecraft server — but *only* between players who have the mod. Anyone without the mod keeps getting normal vanilla whispers, transparently. Delivered messages are logged and shown on a public web page.
+
+Three deliverables: **(1) the Fabric client mod, (2) the relay server, (3) the web log page.**
+
+## Design constraints (read first)
+- **No verification.** The relay does not authenticate anyone. Whatever name a client claims, we believe it. Spoofing is accepted.
+- **No state.** The relay keeps nothing persistent except the chat log. The only thing it holds in memory is the set of currently-open connections (which socket maps to which player name) so it can deliver a live message — that table is rebuilt naturally as clients connect and is allowed to vanish on restart.
+- **Reactive.** The relay has no background logic, no presence broadcasts, no polling. It only ever does something *in response to* a client sending a message.
+- **Fails open.** If the relay is unreachable or the recipient isn't on the mod, messaging silently falls back to vanilla. The mod must never break chat.
+
+---
+
+## 1. Client mod (Fabric, client-side)
+
+**Intercept the whisper commands.** Hook outbound commands on the client and, for `/msg`, `/tell`, `/w`, and `/r`, cancel the vanilla send and route through the relay instead. Anything that isn't a whisper passes through untouched. If the relay socket is closed, do **not** cancel — let it go to vanilla.
+
+**Parse:**
+- `msg|tell|w <target> <message...>` → target + message.
+- `r <message...>` → target is the last person who messaged you (tracked locally, see below); if there's no last sender, let it fall through to vanilla.
+
+**Connection.** Open one long-lived WebSocket to the relay (URL is a config constant). Optionally send `{"type":"hello","name":"<self>"}` on connect so the player is reachable before they send their first message — otherwise registration is lazy (the relay learns who you are from the `from` on your first whisper). Implementer's call; document which.
+
+**Send a whisper** as: `{"from":"<self>","to":"<target>","msg":"<text>"}`. `<self>` is just the client's session username. Then cancel the vanilla command.
+
+**Handle relay replies:**
+- Incoming whisper record `{from,to,msg}` → display it (see Display) and remember `from` as the last sender for `/r`.
+- `{"type":"sent","to":..,"msg":..}` → relay confirmed delivery; display the sender's own outgoing line.
+- `{"type":"fallback","to":..,"msg":..}` → relay couldn't deliver; re-issue the message as a normal vanilla `/msg <to> <msg>`.
+
+**Threading.** The socket callback runs off-thread; Minecraft chat rendering and command dispatch must happen on the main client thread. Marshal every inbound action onto it.
+
+**Display format (both directions, and identical to the site):**
+```
+from -> to: message
+```
+Render the whole line in a custom RGB color `#5EEAD4` (seafoam — not one of the 16 stock colors, so relayed whispers are visually distinct). For incoming, use the record's `from`/`to`; for the sender's confirmation, use self as `from` and the target as `to`.
+
+---
+
+## 2. Relay server (Node suggested: `ws` + `express`)
+
+Single WebSocket endpoint + an HTTP server. Behavior is entirely reactive:
+
+**On a message from a client:**
+1. Note that this socket belongs to the `from` it claims (trusted, no checks). This is the only in-memory bookkeeping.
+2. If the `to` player has a currently-open socket:
+   - forward `{from,to,msg,ts}` to them,
+   - reply `{"type":"sent","to","msg"}` to the sender,
+   - append the record to the log.
+3. If `to` has no open socket: reply `{"type":"fallback","to","msg"}` to the sender. (Do **not** log fallbacks — they become real vanilla whispers and aren't ours.)
+
+Override the `from` field with whatever name the socket registered (so the field is at least internally consistent) and stamp `ts` server-side.
+
+**Storage.** Append delivered records to a flat **JSONL** file, one JSON object per line: `{"from","to","msg","ts"}`. Append-only — never read-modify-rewrite. No DB.
+
+**Web data endpoint.** `GET /chats` reads the JSONL file and returns it as a JSON array.
+
+---
+
+## 3. Web log page
+
+A read-only page served by the relay (static file + the `/chats` endpoint). Polls `/chats` every ~2s and renders the log newest content visible. Each row: `from -> to: message` plus a timestamp. Match the mod's theme — seafoam `#5EEAD4` accent on a dark background, monospace. Escape message text (it's untrusted user content rendering in HTML).
+
+---
+
+## Acceptance criteria
+- Two modded clients can `/msg` each other and the message is delivered through the relay, never reaching the Minecraft server.
+- A modded client messaging a non-modded player results in a normal vanilla whisper (fallback works).
+- `/r` replies to the last person who messaged you, including across relayed messages.
+- The sender sees their own outgoing line exactly once (no duplicate on the fallback path).
+- Delivered messages appear in `chats.jsonl` and on the web page within a couple seconds.
+- Killing the relay does not break in-game messaging (everything falls back to vanilla).
+- Messages render as `from -> to: msg` in `#5EEAD4` in-game and on the site.
+
+## Explicit non-goals
+No authentication, no identity verification, no persistent user/presence store, no per-server name scoping, no encryption, no message history sync on reconnect, no rate limiting. All deferred.
+
+## Known/accepted limitations
+- **Spoofable:** anyone can claim any name. Accepted.
+- **Bypasses server moderation:** relayed messages never hit the Minecraft server, so its logging/anti-cheat/moderation can't see them. Some servers' rules forbid this — deployer's responsibility.
+- **Public log exposes private DMs:** the page shows everyone's relayed messages to anyone. Intended for now; gate it later if needed.
+- **Log grows unbounded:** fine at small scale; rotate or migrate later.
+- **Reachability-before-first-message** depends on whether `hello` is implemented (see mod section).
+
+## Suggested stack
+- Mod: Fabric + Fabric API, Java-WebSocket for the socket, Gson (ships with Minecraft) for JSON.
+- Relay: Node with `ws` and `express`.
+- Storage: a `chats.jsonl` file.

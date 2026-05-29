@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "clih-chat",
+	"version": "${version}",
+	"name": "clih chat",
+	"description": "Hijacks /msg, /tell, /w and /r and routes them through a private relay. Messages never reach the Minecraft server. Falls back silently to vanilla for players without the mod.",
+	"authors": [
+		"1p8"
+	],
+	"contact": {},
+	"license": "MIT",
+	"icon": "assets/clih-chat/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"clih.chat.ClihChat"
+		],
+		"client": [
+			"clih.chat.client.ClihChatClient"
+		]
+	},
+	"mixins": [
+		"clih-chat.mixins.json",
+		{
+			"config": "clih-chat.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.2",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

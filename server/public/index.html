@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>clih chat log</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f172a;
+      color: #cbd5e1;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.9rem;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 0.75rem;
+    }
+
+    h1 {
+      color: #5EEAD4;
+      font-size: 1.1rem;
+      letter-spacing: 0.05em;
+    }
+
+    #status {
+      color: #475569;
+      font-size: 0.75rem;
+    }
+
+    .dl-btn {
+      margin-left: auto;
+      padding: 0.3rem 0.85rem;
+      background: #5EEAD4;
+      color: #0f172a;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .dl-btn:hover { background: #99f6e4; }
+
+    #log {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .entry {
+      display: flex;
+      gap: 1.25rem;
+      padding: 0.2rem 0;
+    }
+
+    .ts {
+      color: #334155;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 8ch;
+    }
+
+    .line { word-break: break-word; }
+    .c-from  { color: #5EEAD4; } /* seafoam  — sender   */
+    .c-arrow { color: #64748B; } /* slate    — arrow/: */
+    .c-to    { color: #F472B6; } /* pink     — recipient */
+    .c-msg   { color: #E2E8F0; } /* off-white — message */
+  </style>
+</head>
+<body>
+  <header>
+    <h1>clih chat log</h1>
+    <span id="status">connecting…</span>
+    <a class="dl-btn" href="/download">⬇ download mod</a>
+  </header>
+  <div id="log"></div>
+
+  <script>
+    const log = document.getElementById('log');
+    const status = document.getElementById('status');
+    let count = 0;
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function fmtTime(ts) {
+      return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch('/chats');
+        const data = await res.json();
+        if (data.length > count) {
+          for (let i = count; i < data.length; i++) {
+            const { from, to, msg, ts } = data[i];
+            const div = document.createElement('div');
+            div.className = 'entry';
+            div.innerHTML =
+              `<span class="ts">${fmtTime(ts)}</span>` +
+              `<span class="line">` +
+                `<span class="c-from">${esc(from)}</span>` +
+                `<span class="c-arrow"> -&gt; </span>` +
+                `<span class="c-to">${esc(to)}</span>` +
+                `<span class="c-arrow">: </span>` +
+                `<span class="c-msg">${esc(msg)}</span>` +
+              `</span>`;
+            log.appendChild(div);
+          }
+          count = data.length;
+          window.scrollTo(0, document.body.scrollHeight);
+        }
+        status.textContent = `${count} message${count === 1 ? '' : 's'} · updated ${new Date().toLocaleTimeString()}`;
+      } catch {
+        status.textContent = 'relay unreachable';
+      }
+    }
+
+    poll();
+    setInterval(poll, 2000);
+  </script>
+</body>
+</html>
