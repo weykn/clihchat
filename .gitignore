@@ -1,9 +1,14 @@
 # gradle
 
 .gradle/
-build/
 out/
 classes/
+build/classes/
+build/devlibs/
+build/libs/*-sources.jar
+build/reports/
+build/resources/
+build/tmp/
 
 # eclipse
 
@@ -44,6 +49,4 @@ replay_*.log
 server/node_modules/
 server/chats.jsonl
 
-# built mod jar
-
-build/libs/*.jar
+# build/libs/*.jar is intentionally NOT ignored — committed for distribution
