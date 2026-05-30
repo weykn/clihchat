@@ -29,16 +29,9 @@
       padding: 1.5rem 0 0.75rem;
     }
 
-    h1 {
-      color: #5EEAD4;
-      font-size: 1.1rem;
-      letter-spacing: 0.05em;
-    }
+    h1 { color: #5EEAD4; font-size: 1.1rem; letter-spacing: 0.05em; }
 
-    #status {
-      color: #475569;
-      font-size: 0.75rem;
-    }
+    #status { color: #475569; font-size: 0.75rem; }
 
     .dl-btn {
       margin-left: auto;
@@ -56,17 +49,17 @@
     }
     .dl-btn:hover { background: #99f6e4; }
 
-    #log {
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
+    .verbose-toggle {
+      font-size: 0.75rem;
+      color: #64748B;
+      text-decoration: none;
+      white-space: nowrap;
     }
+    .verbose-toggle:hover { color: #94a3b8; }
 
-    .entry {
-      display: flex;
-      gap: 1.25rem;
-      padding: 0.2rem 0;
-    }
+    #log { display: flex; flex-direction: column; gap: 0.15rem; }
+
+    .entry { display: flex; gap: 1.25rem; padding: 0.2rem 0; }
 
     .ts {
       color: #334155;
@@ -76,23 +69,34 @@
     }
 
     .line { word-break: break-word; }
-    .c-from  { color: #5EEAD4; } /* seafoam  — sender   */
-    .c-arrow { color: #64748B; } /* slate    — arrow/: */
-    .c-to    { color: #F472B6; } /* pink     — recipient */
-    .c-msg   { color: #E2E8F0; } /* off-white — message */
+    .c-from   { color: #5EEAD4; }
+    .c-arrow  { color: #64748B; }
+    .c-to     { color: #F472B6; }
+    .c-msg    { color: #E2E8F0; }
+    .c-hello  { color: #4ADE80; }
+    .c-bye    { color: #F87171; }
+    .c-back   { color: #FB923C; }
+    .c-dim    { color: #475569; }
   </style>
 </head>
 <body>
   <header>
     <h1>clih chat log</h1>
     <span id="status">connecting…</span>
+    <a id="toggle" class="verbose-toggle" href="#"></a>
     <a class="dl-btn" href="/download">⬇ download mod</a>
   </header>
   <div id="log"></div>
 
   <script>
-    const log = document.getElementById('log');
+    const logEl  = document.getElementById('log');
     const status = document.getElementById('status');
+    const toggle = document.getElementById('toggle');
+    const verbose = new URLSearchParams(location.search).get('all') === '1';
+
+    toggle.textContent = verbose ? '— hide system events' : '+ show all events';
+    toggle.href = verbose ? location.pathname : '?all=1';
+
     let count = 0;
 
     function esc(s) {
@@ -107,30 +111,58 @@
       return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
+    function renderEntry(r) {
+      const div = document.createElement('div');
+      div.className = 'entry';
+      const ts = `<span class="ts">${fmtTime(r.ts)}</span>`;
+
+      if (r.type === 'hello') {
+        div.innerHTML = ts +
+          `<span class="line"><span class="c-dim">›</span> ` +
+          `<span class="c-hello">${esc(r.name)}</span>` +
+          `<span class="c-dim"> connected</span></span>`;
+
+      } else if (r.type === 'disconnect') {
+        div.innerHTML = ts +
+          `<span class="line"><span class="c-dim">‹</span> ` +
+          `<span class="c-bye">${esc(r.name)}</span>` +
+          `<span class="c-dim"> disconnected</span></span>`;
+
+      } else if (r.type === 'fallback') {
+        div.innerHTML = ts +
+          `<span class="line"><span class="c-back">⚡ fallback</span> ` +
+          `<span class="c-from">${esc(r.from)}</span>` +
+          `<span class="c-arrow"> → </span>` +
+          `<span class="c-to">${esc(r.to)}</span>` +
+          `<span class="c-arrow">: </span>` +
+          `<span class="c-msg">${esc(r.msg)}</span></span>`;
+
+      } else {
+        // whisper (type === 'whisper' or old format without type)
+        div.innerHTML = ts +
+          `<span class="line">` +
+          `<span class="c-from">${esc(r.from)}</span>` +
+          `<span class="c-arrow"> -&gt; </span>` +
+          `<span class="c-to">${esc(r.to)}</span>` +
+          `<span class="c-arrow">: </span>` +
+          `<span class="c-msg">${esc(r.msg)}</span>` +
+          `</span>`;
+      }
+      return div;
+    }
+
     async function poll() {
       try {
-        const res = await fetch('/chats');
+        const res  = await fetch('/chats' + (verbose ? '?all=1' : ''));
         const data = await res.json();
         if (data.length > count) {
           for (let i = count; i < data.length; i++) {
-            const { from, to, msg, ts } = data[i];
-            const div = document.createElement('div');
-            div.className = 'entry';
-            div.innerHTML =
-              `<span class="ts">${fmtTime(ts)}</span>` +
-              `<span class="line">` +
-                `<span class="c-from">${esc(from)}</span>` +
-                `<span class="c-arrow"> -&gt; </span>` +
-                `<span class="c-to">${esc(to)}</span>` +
-                `<span class="c-arrow">: </span>` +
-                `<span class="c-msg">${esc(msg)}</span>` +
-              `</span>`;
-            log.appendChild(div);
+            logEl.appendChild(renderEntry(data[i]));
           }
           count = data.length;
           window.scrollTo(0, document.body.scrollHeight);
         }
-        status.textContent = `${count} message${count === 1 ? '' : 's'} · updated ${new Date().toLocaleTimeString()}`;
+        status.textContent = `${count} event${count === 1 ? '' : 's'} · updated ${new Date().toLocaleTimeString()}`;
       } catch {
         status.textContent = 'relay unreachable';
       }

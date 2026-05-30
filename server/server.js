@@ -29,20 +29,25 @@ app.get('/download', (_req, res) => {
     }
 });
 
-app.get('/chats', (_req, res) => {
-    if (!fs.existsSync(LOG_FILE)) {
-        return res.json([]);
-    }
+app.get('/chats', (req, res) => {
+    if (!fs.existsSync(LOG_FILE)) return res.json([]);
     try {
+        const all = req.query.all === '1';
         const records = fs.readFileSync(LOG_FILE, 'utf8')
             .split('\n')
             .filter(l => l.trim())
-            .map(l => JSON.parse(l));
+            .map(l => JSON.parse(l))
+            // Without ?all=1 only show delivered whispers (type absent = old-format whisper)
+            .filter(r => all || !r.type || r.type === 'whisper');
         res.json(records);
     } catch {
         res.json([]);
     }
 });
+
+function appendLog(record) {
+    fs.appendFileSync(LOG_FILE, JSON.stringify(record) + '\n');
+}
 
 // Try to deliver a whisper, retrying every second for up to 6s while the
 // recipient may be reconnecting. Falls back to vanilla only after that.
@@ -50,13 +55,14 @@ function routeWhisper(senderWs, from, to, msg, attempt) {
     if (senderWs.readyState !== 1) return; // sender gone
     const target = connections.get(to);
     if (target && target.readyState === 1) {
-        const record = { from, to, msg, ts: Date.now() };
-        target.send(JSON.stringify(record));
+        const record = { type: 'whisper', from, to, msg, ts: Date.now() };
+        target.send(JSON.stringify({ from, to, msg, ts: record.ts })); // keep wire format simple
         senderWs.send(JSON.stringify({ type: 'sent', to, msg }));
-        fs.appendFileSync(LOG_FILE, JSON.stringify(record) + '\n');
+        appendLog(record);
     } else if (attempt < 6) {
         setTimeout(() => routeWhisper(senderWs, from, to, msg, attempt + 1), 1000);
     } else {
+        appendLog({ type: 'fallback', from, to, msg, ts: Date.now() });
         senderWs.send(JSON.stringify({ type: 'fallback', to, msg }));
     }
 }
@@ -72,6 +78,7 @@ wss.on('connection', ws => {
         if (obj.type === 'hello' && typeof obj.name === 'string') {
             name = obj.name;
             connections.set(name, ws);
+            appendLog({ type: 'hello', name, ts: Date.now() });
             return;
         }
 
@@ -89,7 +96,10 @@ wss.on('connection', ws => {
     });
 
     ws.on('close', () => {
-        if (name) connections.delete(name);
+        if (name) {
+            connections.delete(name);
+            appendLog({ type: 'disconnect', name, ts: Date.now() });
+        }
     });
 });
 
