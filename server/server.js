@@ -44,6 +44,23 @@ app.get('/chats', (_req, res) => {
     }
 });
 
+// Try to deliver a whisper, retrying every second for up to 6s while the
+// recipient may be reconnecting. Falls back to vanilla only after that.
+function routeWhisper(senderWs, from, to, msg, attempt) {
+    if (senderWs.readyState !== 1) return; // sender gone
+    const target = connections.get(to);
+    if (target && target.readyState === 1) {
+        const record = { from, to, msg, ts: Date.now() };
+        target.send(JSON.stringify(record));
+        senderWs.send(JSON.stringify({ type: 'sent', to, msg }));
+        fs.appendFileSync(LOG_FILE, JSON.stringify(record) + '\n');
+    } else if (attempt < 6) {
+        setTimeout(() => routeWhisper(senderWs, from, to, msg, attempt + 1), 1000);
+    } else {
+        senderWs.send(JSON.stringify({ type: 'fallback', to, msg }));
+    }
+}
+
 wss.on('connection', ws => {
     let name = null;
 
@@ -68,16 +85,7 @@ wss.on('connection', ws => {
             connections.set(name, ws);
         }
 
-        const target = connections.get(obj.to);
-        if (target && target.readyState === 1 /* OPEN */) {
-            const record = { from: obj.from, to: obj.to, msg: obj.msg, ts: Date.now() };
-            target.send(JSON.stringify(record));
-            ws.send(JSON.stringify({ type: 'sent', to: obj.to, msg: obj.msg }));
-            fs.appendFileSync(LOG_FILE, JSON.stringify(record) + '\n');
-        } else {
-            // Recipient not on relay — tell the sender to fall back to vanilla.
-            ws.send(JSON.stringify({ type: 'fallback', to: obj.to, msg: obj.msg }));
-        }
+        routeWhisper(ws, obj.from, obj.to, obj.msg, 0);
     });
 
     ws.on('close', () => {

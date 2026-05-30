@@ -3,9 +3,10 @@ package clih.chat.client;
 import clih.chat.ClihChat;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 
@@ -33,7 +34,7 @@ public class RelayClient extends WebSocketClient {
     public void onOpen(ServerHandshake handshake) {
         ClihChat.LOGGER.info("[clih-chat] relay connected");
         // If the player is already in a game when the relay (re)connects, register now.
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             sendHello(mc.player.getName().getString());
         }
@@ -49,7 +50,7 @@ public class RelayClient extends WebSocketClient {
             return;
         }
 
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
 
         if (obj.has("type")) {
             String type = obj.get("type").getAsString();
@@ -92,6 +93,8 @@ public class RelayClient extends WebSocketClient {
         obj.addProperty("name", name);
         send(GSON.toJson(obj));
         ClihChat.LOGGER.info("[clih-chat] registered as {}", name);
+        // Flush any whispers queued while relay was down.
+        Minecraft.getInstance().execute(() -> ClihChatClient.INSTANCE.flushPending(name));
     }
 
     public void sendWhisper(String from, String to, String msg) {
@@ -103,13 +106,13 @@ public class RelayClient extends WebSocketClient {
     }
 
     private static void showMessage(String from, String to, String msg) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.inGameHud == null) return;
-        Text line = Text.literal(from).setStyle(Style.EMPTY.withColor(COLOR_FROM))
-                .append(Text.literal(" -> ").setStyle(Style.EMPTY.withColor(COLOR_ARROW)))
-                .append(Text.literal(to).setStyle(Style.EMPTY.withColor(COLOR_TO)))
-                .append(Text.literal(": ").setStyle(Style.EMPTY.withColor(COLOR_ARROW)))
-                .append(Text.literal(msg).setStyle(Style.EMPTY.withColor(COLOR_MSG)));
-        mc.inGameHud.getChatHud().addMessage(line);
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        Component line = Component.literal(from).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(COLOR_FROM)))
+                .append(Component.literal(" -> ").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(COLOR_ARROW))))
+                .append(Component.literal(to).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(COLOR_TO))))
+                .append(Component.literal(": ").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(COLOR_ARROW))))
+                .append(Component.literal(msg).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(COLOR_MSG))));
+        mc.player.sendSystemMessage(line);
     }
 }
